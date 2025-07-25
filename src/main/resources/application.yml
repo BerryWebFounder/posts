@@ -4,10 +4,19 @@ spring:
     username: root
     password: admin
     driver-class-name: org.mariadb.jdbc.Driver
+  cloud:
+    gateway:
+      routes:
+        - id: posts
+          uri: http://localhost:8081
+          predicates:
+            - Path=/api/posts/**
+          filter:
+            - StripPrefix=1
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     show-sql: true
     format-sql: true
     connection:
@@ -51,6 +60,9 @@ spring:
   config:
     activate:
       on-profile: dev
+  web:
+    resources:
+      static-locations: classpath:/static/
 
   datasource:
     url: jdbc:mariadb://localhost:3306/shop_posts?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Seoul
