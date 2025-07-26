@@ -3,6 +3,7 @@ package com.berryweb.shop.posts.service;
 import com.berryweb.shop.posts.entity.PostFile;
 import com.berryweb.shop.posts.entity.Post;
 import com.berryweb.shop.posts.repository.PostFileRepository;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -146,6 +147,28 @@ public class PostFileService {
         }
 
         return String.format("%.1f %s", size, units[unitIndex]);
+    }
+
+    @PostConstruct
+    public void initializeUploadDirectory() {
+        try {
+            Path uploadPath = Paths.get(uploadDirectory);
+            System.out.println("업로드 경로: " + uploadPath.toAbsolutePath());
+
+            if (!Files.exists(uploadPath)) {
+                Files.createDirectories(uploadPath);
+                System.out.println("업로드 폴더 생성 완료!");
+            }
+
+            // 쓰기 권한 테스트
+            Path testFile = uploadPath.resolve("test.tmp");
+            Files.write(testFile, "test".getBytes());
+            Files.delete(testFile);
+            System.out.println("업로드 폴더 쓰기 권한 확인 완료!");
+
+        } catch (IOException e) {
+            System.err.println("업로드 폴더 설정 실패: " + e.getMessage());
+        }
     }
 
 }

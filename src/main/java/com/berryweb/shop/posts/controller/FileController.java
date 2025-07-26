@@ -13,6 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,21 +35,35 @@ public class FileController {
 
     // 파일 업로드
     @PostMapping("/upload/{postId}")
-    public ResponseEntity<Map<String, Object>> uploadFile(
+    public ResponseEntity<Map<String, Object>> uploadFiles(
             @PathVariable Long postId,
-            @RequestParam("file") MultipartFile file) {
+            @RequestParam("files") MultipartFile[] files) {
+
+        System.out.println("=== 파일 업로드 시작 ===");
+        System.out.println("게시글 ID: " + postId);
+        System.out.println("받은 파일 개수: " + files.length);
+
+        Map<String, Object> response = new HashMap<>();
 
         try {
-            PostFile postFile = postFileService.uploadFile(postId, file);
+            List<PostFile> uploadedFiles = new ArrayList<>();
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("message", "파일이 성공적으로 업로드되었습니다.");
-            response.put("file", postFile);
+            for (MultipartFile file : files) {
+                if (!file.isEmpty()) {
+                    System.out.println("처리 중인 파일: " + file.getOriginalFilename());
+                    PostFile postFile = postFileService.uploadFile(postId, file);
+                    uploadedFiles.add(postFile);
+                }
+            }
 
+            response.put("message", uploadedFiles.size() + "개 파일 업로드 완료");
+            response.put("files", uploadedFiles);
             return ResponseEntity.ok(response);
-        } catch (IOException e) {
-            Map<String, Object> response = new HashMap<>();
-            response.put("error", "파일 업로드 중 오류가 발생했습니다: " + e.getMessage());
+
+        } catch (Exception e) {
+            System.err.println("업로드 실패: " + e.getMessage());
+            e.printStackTrace();
+            response.put("error", e.getMessage());
             return ResponseEntity.badRequest().body(response);
         }
     }
