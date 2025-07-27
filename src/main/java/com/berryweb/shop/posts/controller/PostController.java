@@ -2,7 +2,9 @@ package com.berryweb.shop.posts.controller;
 
 import com.berryweb.shop.posts.dto.PostCreateReq;
 import com.berryweb.shop.posts.dto.PostUpdateReq;
+import com.berryweb.shop.posts.entity.Comment;
 import com.berryweb.shop.posts.entity.Post;
+import com.berryweb.shop.posts.entity.PostFile;
 import com.berryweb.shop.posts.service.CommentService;
 import com.berryweb.shop.posts.service.PostFileService;
 import com.berryweb.shop.posts.service.PostService;
@@ -11,6 +13,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -53,17 +56,74 @@ public class PostController {
 
     // 게시글/공지사항 상세 조회
     @GetMapping("/posts/{id}")
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getPostById(@PathVariable Long id) {
-        Post post = postService.getPostByIdWithViewCount(id);
+        System.out.println("=== 게시글 상세 조회 시작 ===");
+        System.out.println("요청된 게시글 ID: " + id);
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("posts", post);
-        response.put("comments", commentService.getCommentsByPostId(id));
-        response.put("files", postFileService.getFilesByPostId(id));
-        response.put("commentCount", commentService.getCommentCountByPostId(id));
-        response.put("fileCount", postFileService.getFileCountByPostId(id));
+        try {
+            // 게시글 조회 (조회수 증가)
+            Post post = postService.getPostByIdWithViewCount(id);
+            System.out.println("게시글 조회 완료: " + post.getTitle());
 
-        return ResponseEntity.ok(response);
+            // 댓글 조회
+            List<Comment> comments = commentService.getCommentsByPostId(id);
+            System.out.println("댓글 조회 완료: " + comments.size() + "개");
+
+            // 파일 조회
+            List<PostFile> files = postFileService.getFilesByPostId(id);
+            System.out.println("파일 조회 완료: " + files.size() + "개");
+
+            // 통계 정보
+            long commentCount = commentService.getCommentCountByPostId(id);
+            long fileCount = postFileService.getFileCountByPostId(id);
+
+            // 응답 데이터 구성
+            Map<String, Object> response = new HashMap<>();
+            response.put("post", post);  // "posts" → "post"로 변경 (더 명확함)
+            response.put("comments", comments);
+            response.put("files", files);
+            response.put("commentCount", commentCount);
+            response.put("fileCount", fileCount);
+
+            // 게시글 타입 정보 추가
+            response.put("isNotice", post.isNotice());
+            response.put("isPinned", post.isPinned());
+            response.put("isActive", post.isActive());
+            response.put("hasFiles", !files.isEmpty());
+            response.put("hasComments", !comments.isEmpty());
+
+            // 파일 정보 요약
+            if (!files.isEmpty()) {
+                List<Map<String, Object>> filesSummary = files.stream().map(file -> {
+                    Map<String, Object> fileInfo = new HashMap<>();
+                    fileInfo.put("id", file.getId());
+                    fileInfo.put("originalName", file.getOriginalName());
+                    fileInfo.put("storedName", file.getStoredName());
+                    fileInfo.put("fileSize", file.getFileSize());
+                    fileInfo.put("formattedFileSize", file.getFormattedFileSize());
+                    fileInfo.put("contentType", file.getContentType());
+                    fileInfo.put("isImage", file.isImage());
+                    fileInfo.put("downloadUrl", file.getDownloadUrl());
+                    fileInfo.put("postId", file.getPostId());
+                    fileInfo.put("createdAt", file.getCreatedAt());
+                    return fileInfo;
+                }).toList();
+
+                response.put("filesDetail", filesSummary);
+            }
+
+            System.out.println("=== 게시글 상세 조회 완료 ===");
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            System.err.println("게시글 상세 조회 실패: " + e.getMessage());
+
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "게시글을 불러올 수 없습니다.");
+            errorResponse.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(errorResponse);
+        }
     }
 
     // 게시글 생성 (일반 게시글 또는 공지사항)
@@ -206,23 +266,71 @@ public class PostController {
 
     // 공지사항 상세 조회 (별도 엔드포인트)
     @GetMapping("/notices/{id}")
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getNoticeById(@PathVariable Long id) {
-        Post notice = postService.getPostByIdWithViewCount(id);
+        System.out.println("=== 공지사항 상세 조회 시작 ===");
+        System.out.println("요청된 공지사항 ID: " + id);
 
-        if (!notice.isNotice()) {
+        try {
+            Post notice = postService.getPostByIdWithViewCount(id);
+
+            if (!notice.isNotice()) {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("error", "요청한 ID는 공지사항이 아닙니다.");
+                return ResponseEntity.badRequest().body(errorResponse);
+            }
+
+            List<Comment> comments = commentService.getCommentsByPostId(id);
+            List<PostFile> files = postFileService.getFilesByPostId(id);
+            long commentCount = commentService.getCommentCountByPostId(id);
+            long fileCount = postFileService.getFileCountByPostId(id);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("notice", notice);  // "post" 대신 "notice" 사용
+            response.put("comments", comments);
+            response.put("files", files);
+            response.put("commentCount", commentCount);
+            response.put("fileCount", fileCount);
+
+            // 공지사항 전용 정보
+            response.put("isPinned", notice.isPinned());
+            response.put("isActive", notice.isActive());
+            response.put("isExpired", notice.isExpired());
+            response.put("expiryDate", notice.getExpiryDate());
+            response.put("hasFiles", !files.isEmpty());
+            response.put("hasComments", !comments.isEmpty());
+
+            // 파일 정보 요약 (게시글과 동일)
+            if (!files.isEmpty()) {
+                List<Map<String, Object>> filesSummary = files.stream().map(file -> {
+                    Map<String, Object> fileInfo = new HashMap<>();
+                    fileInfo.put("id", file.getId());
+                    fileInfo.put("originalName", file.getOriginalName());
+                    fileInfo.put("storedName", file.getStoredName());
+                    fileInfo.put("fileSize", file.getFileSize());
+                    fileInfo.put("formattedFileSize", file.getFormattedFileSize());
+                    fileInfo.put("contentType", file.getContentType());
+                    fileInfo.put("isImage", file.isImage());
+                    fileInfo.put("downloadUrl", file.getDownloadUrl());
+                    fileInfo.put("postId", file.getPostId());
+                    fileInfo.put("createdAt", file.getCreatedAt());
+                    return fileInfo;
+                }).toList();
+
+                response.put("filesDetail", filesSummary);
+            }
+
+            System.out.println("=== 공지사항 상세 조회 완료 ===");
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            System.err.println("공지사항 상세 조회 실패: " + e.getMessage());
+
             Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("error", "요청한 ID는 공지사항이 아닙니다.");
+            errorResponse.put("error", "공지사항을 불러올 수 없습니다.");
+            errorResponse.put("message", e.getMessage());
             return ResponseEntity.badRequest().body(errorResponse);
         }
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("notice", notice);
-        response.put("comments", commentService.getCommentsByPostId(id));
-        response.put("files", postFileService.getFilesByPostId(id));
-        response.put("commentCount", commentService.getCommentCountByPostId(id));
-        response.put("fileCount", postFileService.getFileCountByPostId(id));
-
-        return ResponseEntity.ok(response);
     }
 
     // 공지사항 생성 (전용 엔드포인트)

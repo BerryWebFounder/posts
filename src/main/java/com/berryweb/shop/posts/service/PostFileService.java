@@ -28,21 +28,54 @@ public class PostFileService {
     @Value("${file.upload.directory:uploads}")
     private String uploadDirectory;
 
-    // 특정 게시글의 파일들 조회
+    // 특정 게시글의 파일들 조회 (트랜잭션 내에서 실행)
+    @Transactional(readOnly = true)
     public List<PostFile> getFilesByPostId(Long postId) {
-        return postFileRepository.findByPostIdOrderByCreatedAtAsc(postId);
+        System.out.println("=== 파일 조회 시작 ===");
+        System.out.println("게시글 ID: " + postId);
+
+        List<PostFile> files = postFileRepository.findByPostIdOrderByCreatedAtAsc(postId);
+
+        System.out.println("조회된 파일 개수: " + files.size());
+
+        // 각 파일의 postId를 명시적으로 설정 (LAZY 로딩 이슈 방지)
+        files.forEach(file -> {
+            if (file.getPostId() == null && file.getPost() != null) {
+                file.setPostId(file.getPost().getId());
+            }
+            System.out.println("파일: " + file.getOriginalName() + " (크기: " + file.getFormattedFileSize() + ")");
+        });
+
+        System.out.println("=== 파일 조회 완료 ===");
+        return files;
     }
 
     // 파일 상세 조회
+    @Transactional(readOnly = true)
     public PostFile getFileById(Long id) {
-        return postFileRepository.findById(id)
+        PostFile file = postFileRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("파일을 찾을 수 없습니다. ID: " + id));
+
+        // postId 설정 확인
+        if (file.getPostId() == null && file.getPost() != null) {
+            file.setPostId(file.getPost().getId());
+        }
+
+        return file;
     }
 
     // 저장된 파일명으로 파일 조회
+    @Transactional(readOnly = true)
     public PostFile getFileByStoredName(String storedName) {
-        return postFileRepository.findByStoredName(storedName)
+        PostFile file = postFileRepository.findByStoredName(storedName)
                 .orElseThrow(() -> new IllegalArgumentException("파일을 찾을 수 없습니다. 저장명: " + storedName));
+
+        // postId 설정 확인
+        if (file.getPostId() == null && file.getPost() != null) {
+            file.setPostId(file.getPost().getId());
+        }
+
+        return file;
     }
 
     // 파일 업로드
@@ -51,6 +84,12 @@ public class PostFileService {
         if (file.isEmpty()) {
             throw new IllegalArgumentException("업로드할 파일이 없습니다.");
         }
+
+        System.out.println("=== 파일 업로드 시작 ===");
+        System.out.println("게시글 ID: " + postId);
+        System.out.println("파일명: " + file.getOriginalFilename());
+        System.out.println("파일 크기: " + file.getSize());
+        System.out.println("Content Type: " + file.getContentType());
 
         Post post = postService.getPostById(postId);
 
@@ -79,7 +118,11 @@ public class PostFileService {
                 post
         );
 
-        return postFileRepository.save(fileEntity);
+        PostFile savedFile = postFileRepository.save(fileEntity);
+        System.out.println("파일 업로드 완료: " + savedFile.getOriginalName());
+        System.out.println("=== 파일 업로드 완료 ===");
+
+        return savedFile;
     }
 
     // 파일 삭제
@@ -91,10 +134,12 @@ public class PostFileService {
         Path filePath = Paths.get(fileEntity.getFilePath());
         if (Files.exists(filePath)) {
             Files.delete(filePath);
+            System.out.println("물리적 파일 삭제 완료: " + fileEntity.getOriginalName());
         }
 
         // DB에서 파일 정보 삭제
         postFileRepository.delete(fileEntity);
+        System.out.println("DB에서 파일 정보 삭제 완료");
     }
 
     // 파일 다운로드용 바이트 배열 반환
@@ -110,16 +155,28 @@ public class PostFileService {
     }
 
     // 특정 게시글의 파일 개수
+    @Transactional(readOnly = true)
     public long getFileCountByPostId(Long postId) {
         return postFileRepository.countByPostId(postId);
     }
 
     // 이미지 파일만 조회
+    @Transactional(readOnly = true)
     public List<PostFile> getImageFiles() {
-        return postFileRepository.findImageFiles();
+        List<PostFile> files = postFileRepository.findImageFiles();
+
+        // postId 설정
+        files.forEach(file -> {
+            if (file.getPostId() == null && file.getPost() != null) {
+                file.setPostId(file.getPost().getId());
+            }
+        });
+
+        return files;
     }
 
     // 총 파일 용량
+    @Transactional(readOnly = true)
     public Long getTotalFileSize() {
         Long totalSize = postFileRepository.getTotalFileSize();
         return totalSize != null ? totalSize : 0L;

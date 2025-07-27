@@ -1,5 +1,6 @@
 package com.berryweb.shop.posts.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -56,10 +57,14 @@ public class Post {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    // JSON 직렬화에서 제외 (순환 참조 방지)
     @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
     private List<Comment> comments = new ArrayList<>();
 
+    // JSON 직렬화에서 제외 (순환 참조 방지)
     @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
     private List<PostFile> files = new ArrayList<>();
 
     // 기존 생성자 (일반 게시글용)
@@ -119,6 +124,26 @@ public class Post {
     // 활성 상태 확인
     public boolean isActive() {
         return Boolean.TRUE.equals(this.isActive);
+    }
+
+    // 댓글 개수 반환 (편의 메서드)
+    public int getCommentCount() {
+        return comments != null ? comments.size() : 0;
+    }
+
+    // 파일 개수 반환 (편의 메서드)
+    public int getFileCount() {
+        return files != null ? files.size() : 0;
+    }
+
+    // 파일 첨부 여부 확인
+    public boolean hasFiles() {
+        return files != null && !files.isEmpty();
+    }
+
+    // 댓글 존재 여부 확인
+    public boolean hasComments() {
+        return comments != null && !comments.isEmpty();
     }
 
 }
