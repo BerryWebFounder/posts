@@ -23,10 +23,17 @@ public class CommentController {
 
     private final CommentService commentService;
 
-    // 특정 게시글의 댓글 조회
+    // 특정 게시글의 댓글 조회 (일반 게시글 + 공지사항 모두 지원)
     @GetMapping("/post/{postId}")
     public ResponseEntity<List<Comment>> getCommentsByPostId(@PathVariable Long postId) {
         List<Comment> comments = commentService.getCommentsByPostId(postId);
+        return ResponseEntity.ok(comments);
+    }
+
+    // 특정 공지사항의 댓글 조회 (별도 엔드포인트, 동일한 로직)
+    @GetMapping("/notice/{noticeId}")
+    public ResponseEntity<List<Comment>> getCommentsByNoticeId(@PathVariable Long noticeId) {
+        List<Comment> comments = commentService.getCommentsByPostId(noticeId);
         return ResponseEntity.ok(comments);
     }
 
@@ -37,7 +44,7 @@ public class CommentController {
         return ResponseEntity.ok(comment);
     }
 
-    // 댓글 생성
+    // 댓글 생성 (일반 게시글 + 공지사항 모두 지원)
     @PostMapping
     public ResponseEntity<Comment> createComment(@RequestBody CommentCreateReq request) {
         Comment comment = commentService.createComment(
@@ -91,5 +98,4 @@ public class CommentController {
         Page<Comment> comments = commentService.searchCommentsByContent(content, pageable);
         return ResponseEntity.ok(comments);
     }
-
 }

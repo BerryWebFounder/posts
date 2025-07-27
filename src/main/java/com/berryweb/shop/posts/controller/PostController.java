@@ -14,10 +14,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/posts")
+@RequestMapping("/api")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
 public class PostController {
@@ -26,8 +27,10 @@ public class PostController {
     private final CommentService commentService;
     private final PostFileService postFileService;
 
-    // 게시글 목록 조회 (페이징)
-    @GetMapping
+    // ============ 기존 게시글 API ============
+
+    // 일반 게시글 목록 조회 (페이징) - 공지사항 제외
+    @GetMapping("/posts")
     public ResponseEntity<Page<Post>> getAllPosts(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
@@ -37,10 +40,21 @@ public class PostController {
         return ResponseEntity.ok(posts);
     }
 
-    // 게시글 상세 조회
-    @GetMapping("/{id}")
+    // 전체 게시글 목록 조회 (공지사항 + 일반 게시글)
+    @GetMapping("/posts/all")
+    public ResponseEntity<Page<Post>> getAllPostsWithNotices(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        Pageable pageable = PageRequest.of(page, size);
+        Page<Post> posts = postService.getAllPostsWithNotices(pageable);
+        return ResponseEntity.ok(posts);
+    }
+
+    // 게시글/공지사항 상세 조회
+    @GetMapping("/posts/{id}")
     public ResponseEntity<Map<String, Object>> getPostById(@PathVariable Long id) {
-        Post post = postService.getPostById(id);
+        Post post = postService.getPostByIdWithViewCount(id);
 
         Map<String, Object> response = new HashMap<>();
         response.put("posts", post);
@@ -52,37 +66,76 @@ public class PostController {
         return ResponseEntity.ok(response);
     }
 
-    // 게시글 생성
-    @PostMapping
+    // 게시글 생성 (일반 게시글 또는 공지사항)
+    @PostMapping("/posts")
     public ResponseEntity<Post> createPost(@RequestBody PostCreateReq request) {
-        System.out.println("Received post data: " + request); // 디버깅용
+        System.out.println("Received post data: " + request);
 
         try {
-            Post post = postService.createPost(
-                    request.getTitle(),
-                    request.getContent(),
-                    request.getAuthor()
-            );
-            System.out.println("Created post: " + post); // 디버깅용
+            Post post;
+
+            // 공지사항인지 확인
+            if (Boolean.TRUE.equals(request.getIsNotice())) {
+                post = postService.createNotice(
+                        request.getTitle(),
+                        request.getContent(),
+                        request.getAuthor(),
+                        request.getIsPinned(),
+                        request.getIsActive(),
+                        request.getExpiryDate(),
+                        request.getSendNotification()
+                );
+            } else {
+                post = postService.createPost(
+                        request.getTitle(),
+                        request.getContent(),
+                        request.getAuthor()
+                );
+            }
+
+            System.out.println("Created post: " + post);
             return ResponseEntity.ok(post);
         } catch (Exception e) {
-            System.err.println("Error creating post: " + e.getMessage()); // 에러 로깅
+            System.err.println("Error creating post: " + e.getMessage());
             return ResponseEntity.badRequest().build();
         }
     }
 
-    // 게시글 수정
-    @PutMapping("/{id}")
+    // 게시글 수정 (일반 게시글 또는 공지사항)
+    @PutMapping("/posts/{id}")
     public ResponseEntity<Post> updatePost(
             @PathVariable Long id,
             @RequestBody PostUpdateReq request) {
 
-        Post post = postService.updatePost(id, request.getTitle(), request.getContent());
-        return ResponseEntity.ok(post);
+        try {
+            Post existingPost = postService.getPostById(id);
+            Post updatedPost;
+
+            if (existingPost.isNotice()) {
+                // 공지사항 수정
+                updatedPost = postService.updateNotice(
+                        id,
+                        request.getTitle(),
+                        request.getContent(),
+                        request.getIsPinned(),
+                        request.getIsActive(),
+                        request.getExpiryDate(),
+                        request.getSendNotification()
+                );
+            } else {
+                // 일반 게시글 수정
+                updatedPost = postService.updatePost(id, request.getTitle(), request.getContent());
+            }
+
+            return ResponseEntity.ok(updatedPost);
+        } catch (Exception e) {
+            System.err.println("Error updating post: " + e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
     }
 
     // 게시글 삭제
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/posts/{id}")
     public ResponseEntity<Map<String, String>> deletePost(@PathVariable Long id) {
         postService.deletePost(id);
 
@@ -91,11 +144,12 @@ public class PostController {
         return ResponseEntity.ok(response);
     }
 
-    // 게시글 검색
-    @GetMapping("/search")
+    // 게시글 검색 (일반 게시글)
+    @GetMapping("/posts/search")
     public ResponseEntity<Page<Post>> searchPosts(
             @RequestParam(required = false) String title,
             @RequestParam(required = false) String author,
+            @RequestParam(required = false) String content,
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
@@ -107,6 +161,9 @@ public class PostController {
             posts = postService.searchByTitle(title, pageable);
         } else if (author != null && !author.trim().isEmpty()) {
             posts = postService.searchByAuthor(author, pageable);
+        } else if (content != null && !content.trim().isEmpty()) {
+            // 내용 검색은 키워드 검색으로 처리
+            posts = postService.searchByTitleOrContent(content, pageable);
         } else if (keyword != null && !keyword.trim().isEmpty()) {
             posts = postService.searchByTitleOrContent(keyword, pageable);
         } else {
@@ -117,7 +174,7 @@ public class PostController {
     }
 
     // 파일이 첨부된 게시글 조회
-    @GetMapping("/with-files")
+    @GetMapping("/posts/with-files")
     public ResponseEntity<Page<Post>> getPostsWithFiles(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
@@ -127,12 +184,205 @@ public class PostController {
         return ResponseEntity.ok(posts);
     }
 
-    // 게시판 통계
-    @GetMapping("/stats")
+    // ============ 공지사항 전용 API ============
+
+    // 전체 공지사항 조회 (관리자용)
+    @GetMapping("/notices")
+    public ResponseEntity<Page<Post>> getAllNotices(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        Pageable pageable = PageRequest.of(page, size);
+        Page<Post> notices = postService.getAllNotices(pageable);
+        return ResponseEntity.ok(notices);
+    }
+
+    // 활성 공지사항만 조회
+    @GetMapping("/notices/active")
+    public ResponseEntity<List<Post>> getActiveNotices() {
+        List<Post> notices = postService.getActiveNoticesList();
+        return ResponseEntity.ok(notices);
+    }
+
+    // 공지사항 상세 조회 (별도 엔드포인트)
+    @GetMapping("/notices/{id}")
+    public ResponseEntity<Map<String, Object>> getNoticeById(@PathVariable Long id) {
+        Post notice = postService.getPostByIdWithViewCount(id);
+
+        if (!notice.isNotice()) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "요청한 ID는 공지사항이 아닙니다.");
+            return ResponseEntity.badRequest().body(errorResponse);
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("notice", notice);
+        response.put("comments", commentService.getCommentsByPostId(id));
+        response.put("files", postFileService.getFilesByPostId(id));
+        response.put("commentCount", commentService.getCommentCountByPostId(id));
+        response.put("fileCount", postFileService.getFileCountByPostId(id));
+
+        return ResponseEntity.ok(response);
+    }
+
+    // 공지사항 생성 (전용 엔드포인트)
+    @PostMapping("/notices")
+    public ResponseEntity<Post> createNotice(@RequestBody PostCreateReq request) {
+        System.out.println("Creating notice: " + request);
+
+        try {
+            Post notice = postService.createNotice(
+                    request.getTitle(),
+                    request.getContent(),
+                    request.getAuthor(),
+                    request.getIsPinned(),
+                    request.getIsActive(),
+                    request.getExpiryDate(),
+                    request.getSendNotification()
+            );
+
+            System.out.println("Created notice: " + notice);
+            return ResponseEntity.ok(notice);
+        } catch (Exception e) {
+            System.err.println("Error creating notice: " + e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    // 공지사항 수정 (전용 엔드포인트)
+    @PutMapping("/notices/{id}")
+    public ResponseEntity<Post> updateNotice(
+            @PathVariable Long id,
+            @RequestBody PostUpdateReq request) {
+
+        try {
+            Post notice = postService.updateNotice(
+                    id,
+                    request.getTitle(),
+                    request.getContent(),
+                    request.getIsPinned(),
+                    request.getIsActive(),
+                    request.getExpiryDate(),
+                    request.getSendNotification()
+            );
+
+            return ResponseEntity.ok(notice);
+        } catch (Exception e) {
+            System.err.println("Error updating notice: " + e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    // 공지사항 삭제 (전용 엔드포인트)
+    @DeleteMapping("/notices/{id}")
+    public ResponseEntity<Map<String, String>> deleteNotice(@PathVariable Long id) {
+        Post notice = postService.getPostById(id);
+
+        if (!notice.isNotice()) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("error", "요청한 ID는 공지사항이 아닙니다.");
+            return ResponseEntity.badRequest().body(errorResponse);
+        }
+
+        postService.deletePost(id);
+
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "공지사항이 삭제되었습니다.");
+        return ResponseEntity.ok(response);
+    }
+
+    // 공지사항 상태 토글
+    @PatchMapping("/notices/{id}/toggle-status")
+    public ResponseEntity<Post> toggleNoticeStatus(@PathVariable Long id) {
+        try {
+            Post notice = postService.toggleNoticeStatus(id);
+            return ResponseEntity.ok(notice);
+        } catch (Exception e) {
+            System.err.println("Error toggling notice status: " + e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    // 공지사항 검색
+    @GetMapping("/notices/search")
+    public ResponseEntity<Page<Post>> searchNotices(
+            @RequestParam(required = false) String title,
+            @RequestParam(required = false) String author,
+            @RequestParam(required = false) String content,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        Pageable pageable = PageRequest.of(page, size);
+        Page<Post> notices;
+
+        if (title != null && !title.trim().isEmpty()) {
+            notices = postService.searchNoticesByTitle(title, pageable);
+        } else if (author != null && !author.trim().isEmpty()) {
+            notices = postService.searchNoticesByAuthor(author, pageable);
+        } else if (content != null && !content.trim().isEmpty()) {
+            notices = postService.searchNoticesByContent(content, pageable);
+        } else if (keyword != null && !keyword.trim().isEmpty()) {
+            notices = postService.searchNoticesByKeyword(keyword, pageable);
+        } else {
+            notices = postService.getAllNotices(pageable);
+        }
+
+        return ResponseEntity.ok(notices);
+    }
+
+    // 중요 공지사항 조회
+    @GetMapping("/notices/pinned")
+    public ResponseEntity<List<Post>> getPinnedNotices() {
+        List<Post> notices = postService.getPinnedNotices();
+        return ResponseEntity.ok(notices);
+    }
+
+    // 일반 공지사항 조회 (중요공지 제외)
+    @GetMapping("/notices/regular")
+    public ResponseEntity<List<Post>> getRegularNotices() {
+        List<Post> notices = postService.getRegularNotices();
+        return ResponseEntity.ok(notices);
+    }
+
+    // 만료 임박 공지사항 조회
+    @GetMapping("/notices/expiring-soon")
+    public ResponseEntity<List<Post>> getNoticesExpiringSoon() {
+        List<Post> notices = postService.getNoticesExpiringSoon();
+        return ResponseEntity.ok(notices);
+    }
+
+    // ============ 통계 API ============
+
+    // 전체 통계
+    @GetMapping("/posts/stats")
     public ResponseEntity<Map<String, Object>> getStats() {
         Map<String, Object> stats = new HashMap<>();
+
+        // 게시글 통계
         stats.put("totalPosts", postService.getTotalPostCount());
+        stats.put("regularPosts", postService.getRegularPostCount());
+        stats.put("totalNotices", postService.getNoticeCount());
+        stats.put("activeNotices", postService.getActiveNoticeCount());
+        stats.put("pinnedNotices", postService.getPinnedNoticeCount());
+        stats.put("expiredNotices", postService.getExpiredNoticeCount());
+
+        // 파일 통계
         stats.put("totalFileSize", postFileService.formatFileSize(postFileService.getTotalFileSize()));
+
+        return ResponseEntity.ok(stats);
+    }
+
+    // 공지사항 통계
+    @GetMapping("/notices/stats")
+    public ResponseEntity<Map<String, Object>> getNoticeStats() {
+        Map<String, Object> stats = new HashMap<>();
+
+        stats.put("total", postService.getNoticeCount());
+        stats.put("active", postService.getActiveNoticeCount());
+        stats.put("pinned", postService.getPinnedNoticeCount());
+        stats.put("expired", postService.getExpiredNoticeCount());
+        stats.put("expiringSoon", postService.getNoticesExpiringSoon().size());
 
         return ResponseEntity.ok(stats);
     }

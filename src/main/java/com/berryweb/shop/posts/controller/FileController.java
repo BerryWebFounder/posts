@@ -26,22 +26,49 @@ public class FileController {
 
     private final PostFileService postFileService;
 
-    // 특정 게시글의 파일 목록 조회
+    // 특정 게시글의 파일 목록 조회 (일반 게시글)
     @GetMapping("/post/{postId}")
     public ResponseEntity<List<PostFile>> getFilesByPostId(@PathVariable Long postId) {
         List<PostFile> files = postFileService.getFilesByPostId(postId);
         return ResponseEntity.ok(files);
     }
 
-    // 파일 업로드
+    // 특정 공지사항의 파일 목록 조회 (공지사항용 별도 엔드포인트)
+    @GetMapping("/notice/{noticeId}")
+    public ResponseEntity<List<PostFile>> getFilesByNoticeId(@PathVariable Long noticeId) {
+        List<PostFile> files = postFileService.getFilesByPostId(noticeId);
+        return ResponseEntity.ok(files);
+    }
+
+    // 일반 게시글 파일 업로드
     @PostMapping("/upload/{postId}")
     public ResponseEntity<Map<String, Object>> uploadFiles(
             @PathVariable Long postId,
             @RequestParam("files") MultipartFile[] files) {
 
-        System.out.println("=== 파일 업로드 시작 ===");
+        System.out.println("=== 게시글 파일 업로드 시작 ===");
         System.out.println("게시글 ID: " + postId);
         System.out.println("받은 파일 개수: " + files.length);
+
+        return processFileUpload(postId, files, "게시글");
+    }
+
+    // 공지사항 파일 업로드
+    @PostMapping("/upload/notice/{noticeId}")
+    public ResponseEntity<Map<String, Object>> uploadNoticeFiles(
+            @PathVariable Long noticeId,
+            @RequestParam("files") MultipartFile[] files) {
+
+        System.out.println("=== 공지사항 파일 업로드 시작 ===");
+        System.out.println("공지사항 ID: " + noticeId);
+        System.out.println("받은 파일 개수: " + files.length);
+
+        return processFileUpload(noticeId, files, "공지사항");
+    }
+
+    // 공통 파일 업로드 처리 메서드
+    private ResponseEntity<Map<String, Object>> processFileUpload(
+            Long targetId, MultipartFile[] files, String type) {
 
         Map<String, Object> response = new HashMap<>();
 
@@ -51,24 +78,26 @@ public class FileController {
             for (MultipartFile file : files) {
                 if (!file.isEmpty()) {
                     System.out.println("처리 중인 파일: " + file.getOriginalFilename());
-                    PostFile postFile = postFileService.uploadFile(postId, file);
+                    PostFile postFile = postFileService.uploadFile(targetId, file);
                     uploadedFiles.add(postFile);
                 }
             }
 
-            response.put("message", uploadedFiles.size() + "개 파일 업로드 완료");
+            response.put("message", uploadedFiles.size() + "개 파일 업로드 완료 (" + type + ")");
             response.put("files", uploadedFiles);
+            response.put("type", type);
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
             System.err.println("업로드 실패: " + e.getMessage());
             e.printStackTrace();
             response.put("error", e.getMessage());
+            response.put("type", type);
             return ResponseEntity.badRequest().body(response);
         }
     }
 
-    // 다중 파일 업로드
+    // 다중 파일 업로드 (레거시 지원)
     @PostMapping("/upload-multiple/{postId}")
     public ResponseEntity<Map<String, Object>> uploadMultipleFiles(
             @PathVariable Long postId,
@@ -150,5 +179,4 @@ public class FileController {
 
         return ResponseEntity.ok(response);
     }
-
 }
